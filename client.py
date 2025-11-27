@@ -5,7 +5,7 @@ import socket
 import pickle
 
 WIDTH, HEIGHT = 800, 600
-HOST = '52.79.106.125' # 실제 서버 IP로 변경 필요
+HOST = '52.79.106.125' 
 PORT = 5555
 
 # 색상
@@ -126,7 +126,6 @@ def input_nickname():
         clock.tick(60)
     return user_text
 
-# [추가] 안전한 스폰 위치 계산 (겹침 방지)
 def get_safe_spawn(obstacles, players, my_id):
     # 최대 100번 시도하여 안전한 위치 탐색
     for _ in range(100):
@@ -252,7 +251,6 @@ class Player:
     def __init__(self, pid, name):
         self.pid = pid
         self.name = name
-        # [수정] 초기 위치를 화면 밖으로 설정하여 아직 스폰되지 않음을 표시
         self.x, self.y = -1000, -1000 
         self.ba = 0
         self.ta = 0
@@ -265,7 +263,6 @@ class Player:
         self.has_spawned = False # 스폰 여부 플래그
 
     def move(self, keys, obstacles, other_players):
-        # [수정] 스폰되지 않았거나 죽었으면 이동 불가
         if self.is_dead or not self.has_spawned: return
         
         dx, dy = 0, 0
@@ -374,13 +371,11 @@ def main():
         if n.p_id in state['players']:
             my_state = state['players'][n.p_id]
             
-            # [수정] 1. 최초 접속 시 안전한 위치 스폰
             if not me.has_spawned:
                 me.x, me.y = get_safe_spawn(state['obstacles'], state['players'], n.p_id)
                 me.has_spawned = True
 
-            # [수정] 2. 부활 시 안전한 위치로 재조정 (서버 랜덤 위치 덮어쓰기)
-            # 내가 죽어있었는데 서버 데이터는 살아있다면(방금 부활함)
+    
             if me.is_dead and not my_state['dead']:
                 me.x, me.y = get_safe_spawn(state['obstacles'], state['players'], n.p_id)
             
