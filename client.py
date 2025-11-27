@@ -122,7 +122,6 @@ class Tank:
         
         self.color = (random.randint(100, 200), random.randint(100, 200), random.randint(100, 200))
         self.is_dead = False
-        self.bullets = []
         self.tracks = []
         self.track_timer = 0
         self.net_actions = {} 
@@ -135,7 +134,6 @@ class Tank:
         self.point = 0
         self.max_hp = 10
         self.hp = 10
-        self.bullets = []
         self.respawn_req = True
 
     def get_radius(self):
@@ -150,9 +148,7 @@ class Tank:
         
         bullet_id = (self.id, time.time(), random.random())
         bullet_data = {'id': bullet_id, 'p_id': self.id, 'x': self.x, 'y': self.y, 'angle': self.turret_angle, 'life': lifetime, 'radius': radius, 'color': self.color}
-        self.bullets.append(bullet_data)
         
-        # 서버 전송을 위해 net_actions에 추가
         if 'new_bullets' not in self.net_actions:
             self.net_actions['new_bullets'] = []
         self.net_actions['new_bullets'].append(bullet_data)
@@ -211,20 +207,14 @@ class Tank:
         else:
             self.track_timer += 1
 
-    def update_bullets(self, obstacles, other_players):
+    def update_bullets(self, obstacles, other_players, server_bullets):
         if self.is_dead: return
         self.net_actions = {} 
         
-        for b in self.bullets[:]:
-            rad = math.radians(b['angle'])
-            b['x'] += math.cos(rad) * 10
-            b['y'] -= math.sin(rad) * 10
-            b['life'] -= 1
-            
-            if not (0<=b['x']<=WIDTH and 0<=b['y']<=HEIGHT) or b['life'] <= 0:
-                self.bullets.remove(b)
-                continue
-            
+        # 내 총알에 대한 충돌 감지만 수행
+        my_bullets = [b for b in server_bullets if b.get('p_id') == self.id]
+        
+        for b in my_bullets:
             hit = False
             for obs in obstacles:
                 if math.hypot(b['x']-obs['x'], b['y']-obs['y']) < b['radius'] + obs['r']:
@@ -246,7 +236,10 @@ class Tank:
                         self.net_actions['damage'] = dmg
                         hit = True; break
             
-            if hit: self.bullets.remove(b)
+            if hit: 
+                # 서버가 총알을 삭제하므로 클라이언트에서는 아무것도 하지 않음
+                # 단, 충돌 이벤트는 한번만 보내기 위해 즉시 net_actions를 업데이트
+                return
 
 def get_random_spawn(obstacles):
     while True:
@@ -372,7 +365,7 @@ def main():
 
         keys = pygame.key.get_pressed()
         my_tank.move(keys, obstacles, s_players, items)
-        my_tank.update_bullets(obstacles, s_players)
+        my_tank.update_bullets(obstacles, s_players, s_bullets)
         
         # 클라이언트 측 폭발 애니메이션 관리 (단순화)
         new_explosions = []
@@ -417,13 +410,9 @@ def main():
             draw_tank_model(screen, my_tank.x, my_tank.y, my_tank.body_angle, my_tank.turret_angle, 
                            my_tank.color, my_tank.lv, my_tank.name, my_tank.hp, my_tank.max_hp, False)
             
-            for b in my_tank.bullets:
-                pygame.draw.circle(screen, b['color'], (int(b['x']), int(b['y'])), int(b['radius']))
-            
-            # 서버가 보내준 다른 플레이어의 총알 그리기
-            for b in s_bullets:
-                if b.get('p_id') != my_tank.id:
-                    pygame.draw.circle(screen, b['color'], (int(b['x']), int(b['y'])), int(b['radius']))
+        # 서버가 보내준 모든 총알 그리기
+        for b in s_bullets:
+            pygame.draw.circle(screen, b['color'], (int(b['x']), int(b['y'])), int(b['radius']))
 
         for e in explosions[:]:
             e['r'] += 2; e['a'] -= 5
