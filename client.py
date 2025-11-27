@@ -3,428 +3,445 @@ import math
 import random
 import socket
 import pickle
-import time
 
 WIDTH, HEIGHT = 800, 600
-HOST = '52.79.106.125'
+HOST = '52.79.106.125' # 실제 서버 IP로 변경 필요
 PORT = 5555
 
 # 색상
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 GRAY = (100, 100, 100)
-DARK_GRAY = (50, 50, 50)
-BARREL_COLOR = (80, 80, 80)
-OBSTACLE_COLOR = (150, 160, 170)
-YELLOW = (255, 255, 0)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 100, 255)
+RED = (255, 60, 60)
+GREEN = (60, 255, 60)
 GOLD = (255, 215, 0)
-HEAL_COLOR = (255, 0, 0)
+TRANS_BLACK = (0, 0, 0, 150)
 
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Tank Battle - Red Heal Item")
+pygame.display.set_caption("MINI TANKS")
 clock = pygame.time.Clock()
 
+# 한글 폰트 설정
 try:
-    FONT_MAIN = pygame.font.SysFont("malgungothic", 24)
-    FONT_BIG = pygame.font.SysFont("malgungothic", 48, bold=True)
-    FONT_S = pygame.font.SysFont("malgungothic", 14, bold=True)
+    # 윈도우 기본 한글 폰트
+    FONT_MAIN = pygame.font.SysFont("malgungothic", 20, bold=True)
+    FONT_BIG = pygame.font.SysFont("malgungothic", 40, bold=True)
+    FONT_S = pygame.font.SysFont("malgungothic", 12, bold=True)
+    FONT_NAME = pygame.font.SysFont("malgungothic", 14, bold=True)
 except:
-    FONT_MAIN = pygame.font.SysFont("arial", 24)
-    FONT_BIG = pygame.font.SysFont("arial", 48, bold=True)
-    FONT_S = pygame.font.SysFont("arial", 14, bold=True)
+    # 폰트 없을 시 기본값
+    FONT_MAIN = pygame.font.SysFont("arial", 20, bold=True)
+    FONT_BIG = pygame.font.SysFont("arial", 40, bold=True)
+    FONT_S = pygame.font.SysFont("arial", 12, bold=True)
+    FONT_NAME = pygame.font.SysFont("arial", 14, bold=True)
 
 class Network:
     def __init__(self):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.addr = (HOST, PORT)
-        self.p_id = self.connect()
+        self.client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.p_id = None
+        self.connected = False
 
     def connect(self):
         try:
-            self.client.connect(self.addr)
-            return pickle.loads(self.client.recv(2048))
-        except: return None
+            self.client.connect((HOST, PORT))
+            self.p_id = pickle.loads(self.client.recv(2048))
+            self.connected = True
+            return True
+        except: 
+            return False
 
     def send(self, data):
         try:
-            self.client.send(pickle.dumps(data))
+            pickled = pickle.dumps(data)
+            self.client.send(len(pickled).to_bytes(4, 'big') + pickled)
             
-            # 1. 헤더(데이터 크기) 수신
             header = self.client.recv(4)
             if not header: return None
-            data_size = int.from_bytes(header, 'big')
+            size = int.from_bytes(header, 'big')
             
-            # 2. 실제 데이터 수신
-            full_data = b''
-            while len(full_data) < data_size:
-                chunk = self.client.recv(8192)
+            recv_data = b''
+            while len(recv_data) < size:
+                chunk = self.client.recv(min(4096, size - len(recv_data)))
                 if not chunk: return None
-                full_data += chunk
+                recv_data += chunk
+            return pickle.loads(recv_data)
+        except: return None
+
+# 닉네임 입력 화면
+def input_nickname():
+    user_text = ""
+    composition_text = ""
+    input_active = True
+    
+    pygame.key.set_repeat(500, 50)
+    try:
+        pygame.key.start_text_input()
+    except: pass
+
+    while input_active:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return None
             
-            return pickle.loads(full_data)
-        except socket.error as e:
-            print(e)
-            return None
+            elif event.type == pygame.TEXTINPUT:
+                if len(user_text) + len(event.text) <= 8:
+                    user_text += event.text
+                composition_text = ""
+            
+            elif event.type == pygame.TEXTEDITING:
+                composition_text = event.text
 
-def draw_tombstone(surface, x, y, name):
-    pygame.draw.rect(surface, GRAY, (x - 15, y - 20, 30, 40))
-    pygame.draw.circle(surface, GRAY, (x, y - 20), 15)
-    pygame.draw.line(surface, DARK_GRAY, (x, y - 10), (x, y + 10), 3)
-    pygame.draw.line(surface, DARK_GRAY, (x - 8, y - 5), (x + 8, y - 5), 3)
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    final_name = user_text + composition_text
+                    if len(final_name) > 0:
+                        try: pygame.key.stop_text_input()
+                        except: pass
+                        return final_name
+                elif event.key == pygame.K_BACKSPACE:
+                    if len(user_text) > 0 and not composition_text:
+                        user_text = user_text[:-1]
+
+        screen.fill((30, 30, 30))
+        title = FONT_BIG.render("MINI TANKS", True, GOLD)
+        guide = FONT_MAIN.render("닉네임을 입력하세요 (Enter)", True, WHITE)
+        
+        input_box = pygame.Rect(WIDTH//2 - 100, HEIGHT//2, 200, 40)
+        pygame.draw.rect(screen, WHITE, input_box, 2)
+        
+        display_text = user_text + composition_text
+        name_surf = FONT_MAIN.render(display_text, True, GOLD)
+        screen.blit(name_surf, (input_box.x + 10, input_box.y + 8))
+        
+        if pygame.time.get_ticks() % 1000 < 500:
+            cursor_x = input_box.x + 10 + name_surf.get_width()
+            pygame.draw.line(screen, GOLD, (cursor_x, input_box.y + 8), (cursor_x, input_box.y + 32), 2)
+        
+        screen.blit(title, (WIDTH//2 - title.get_width()//2, HEIGHT//2 - 100))
+        screen.blit(guide, (WIDTH//2 - guide.get_width()//2, HEIGHT//2 - 50))
+        
+        pygame.display.flip()
+        clock.tick(60)
+    return user_text
+
+# [추가] 안전한 스폰 위치 계산 (겹침 방지)
+def get_safe_spawn(obstacles, players, my_id):
+    # 최대 100번 시도하여 안전한 위치 탐색
+    for _ in range(100):
+        x = random.randint(50, WIDTH - 50)
+        y = random.randint(50, HEIGHT - 50)
+        safe = True
+        
+        # 1. 장애물과 겹치는지 확인
+        for obs in obstacles:
+            # 장애물 반지름 + 탱크 안전거리(약 30) + 여유분
+            if math.hypot(x - obs['x'], y - obs['y']) < obs['r'] + 40:
+                safe = False; break
+        
+        if not safe: continue
+
+        # 2. 다른 플레이어와 겹치는지 확인
+        for pid, p in players.items():
+            if pid == my_id or p['dead']: continue
+            # 상대 탱크 반지름 고려 (넉넉하게 60 거리 유지)
+            if math.hypot(x - p['x'], y - p['y']) < 60:
+                safe = False; break
+        
+        if safe: return x, y
+        
+    # 자리가 정 없으면 그냥 랜덤 반환
+    return random.randint(50, WIDTH - 50), random.randint(50, HEIGHT - 50)
+
+def draw_tombstone(surf, x, y, name):
+    pygame.draw.circle(surf, GRAY, (x, y-10), 15)
+    pygame.draw.rect(surf, GRAY, (x-15, y-10, 30, 30))
+    pygame.draw.line(surf, BLACK, (x, y-5), (x, y+10), 2)
+    pygame.draw.line(surf, BLACK, (x-5, y), (x+5, y), 2)
+    
     txt = FONT_S.render("R.I.P", True, BLACK)
-    surface.blit(txt, (x - txt.get_width()//2, y + 5))
-    name_txt = FONT_S.render(name, True, BLACK)
-    surface.blit(name_txt, (x - name_txt.get_width()//2, y + 25))
+    surf.blit(txt, (x-txt.get_width()//2, y+25))
+    
+    name_txt = FONT_S.render(name, True, WHITE)
+    surf.blit(name_txt, (x-name_txt.get_width()//2, y-35))
 
-def draw_tank_model(surface, x, y, angle, turret_angle, color, lv, name, hp, max_hp, is_dead):
+def draw_leaderboard(surf, players):
+    sorted_p = sorted(players.items(), key=lambda item: item[1]['lv'], reverse=True)
+    
+    count = len(sorted_p)
+    font_size = max(15, 22 - (count // 2))
+    
+    try:
+        RANK_FONT = pygame.font.SysFont("malgungothic", font_size, bold=True)
+    except:
+        RANK_FONT = pygame.font.SysFont("arial", font_size, bold=True)
+        
+    box_w = 180
+    box_h = 40 + (count * (font_size + 5))
+    
+    bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+    bg.fill(TRANS_BLACK)
+    surf.blit(bg, (10, 10))
+    
+    header = FONT_MAIN.render("현재 랭킹", True, GOLD)
+    surf.blit(header, (20, 15))
+    
+    y = 45
+    for i, (pid, p) in enumerate(sorted_p):
+        state = "💀" if p['dead'] else f"Lv.{int(p['lv'])}"
+        text = f"{i+1}. {p['name']} ({state})"
+        
+        color = WHITE
+        if i == 0: color = GOLD
+        elif i == 1: color = (192, 192, 192)
+        elif i == 2: color = (205, 127, 50)
+        
+        row = RANK_FONT.render(text, True, color)
+        surf.blit(row, (20, y))
+        y += font_size + 5
+
+def draw_tank(surf, x, y, ba, ta, color, lv, name, hp, max_hp, is_dead):
     if is_dead:
-        draw_tombstone(surface, x, y, name)
+        draw_tombstone(surf, x, y, name)
         return
 
-    lv_int = int(lv)
+    scale = 1 + (lv * 0.1)
     base_size = 40
-    scale = 1 + (lv_int * 0.1)
     size = base_size * min(scale, 3.0)
     
-    body_surf = pygame.Surface((size, size), pygame.SRCALPHA)
-    rw, rh = size, size * 0.75
-    pygame.draw.rect(body_surf, color, (0, (size-rh)/2, rw, rh))
+    shadow = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(shadow, (0,0,0,50), (size/2, size/2), size/2)
+    surf.blit(shadow, (x - size/2 + 5, y - size/2 + 5))
+
+    body = pygame.Surface((size, size*0.85), pygame.SRCALPHA)
+    pygame.draw.rect(body, color, (0, 0, size, size*0.85), border_radius=int(5*scale))
     
-    lr = size * 0.12
-    pygame.draw.circle(body_surf, YELLOW, (size - lr, (size-rh)/2 + 5), lr)
-    pygame.draw.circle(body_surf, YELLOW, (size - lr, (size+rh)/2 - 5), lr)
+    pygame.draw.rect(body, (30,30,30), (0, 0, size, size*0.2))
+    pygame.draw.rect(body, (30,30,30), (0, size*0.65, size, size*0.2))
 
-    rotated_body = pygame.transform.rotate(body_surf, angle)
-    rect = rotated_body.get_rect(center=(x, y))
-    surface.blit(rotated_body, rect.topleft)
+    r_body = pygame.transform.rotate(body, ba)
+    surf.blit(r_body, r_body.get_rect(center=(x, y)).topleft)
 
-    turret_surf = pygame.Surface((size, size), pygame.SRCALPHA)
-    pygame.draw.rect(turret_surf, BARREL_COLOR, (size/2, size*0.4, size*0.8, size*0.2))
-    darker = (max(0, color[0]-40), max(0, color[1]-40), max(0, color[2]-40))
-    pygame.draw.circle(turret_surf, darker, (size/2, size/2), size*0.25)
+    turret = pygame.Surface((size, size), pygame.SRCALPHA)
+    barrel_w = size * 0.6
+    barrel_h = size * 0.25
+    pygame.draw.rect(turret, (80, 80, 80), (size/2, size/2 - barrel_h/2, barrel_w, barrel_h))
+    pygame.draw.circle(turret, (max(0, color[0]-40), max(0, color[1]-40), max(0, color[2]-40)), (size/2, size/2), size*0.35)
     
-    rotated_turret = pygame.transform.rotate(turret_surf, turret_angle)
-    t_rect = rotated_turret.get_rect(center=(x, y))
-    surface.blit(rotated_turret, t_rect.topleft)
+    r_turret = pygame.transform.rotate(turret, ta)
+    surf.blit(r_turret, r_turret.get_rect(center=(x, y)).topleft)
 
-    info_txt = FONT_S.render(f"LV.{lv_int} {name}", True, BLACK)
-    surface.blit(info_txt, (x - info_txt.get_width()//2, y + size/2 + 5))
+    name_surf = FONT_NAME.render(f"Lv.{int(lv)} {name}", True, BLACK)
+    for dx, dy in [(-1,-1),(-1,1),(1,-1),(1,1)]:
+        outline = FONT_NAME.render(f"Lv.{int(lv)} {name}", True, WHITE)
+        surf.blit(outline, (x - name_surf.get_width()//2 + dx, y + size/2 + 5 + dy))
+    surf.blit(name_surf, (x - name_surf.get_width()//2, y + size/2 + 5))
+    
+    if max_hp > 0:
+        ratio = max(0, hp / max_hp)
+        bar_w = size * 1.2
+        bar_h = 6 * min(scale, 2.0)
+        bar_x = x - bar_w // 2
+        bar_y = y - size/2 - 15
+        
+        pygame.draw.rect(surf, (50,0,0), (bar_x, bar_y, bar_w, bar_h))
+        pygame.draw.rect(surf, GREEN if ratio > 0.5 else RED, (bar_x, bar_y, bar_w * ratio, bar_h))
 
-    bar_w = 50
-    bar_h = 6
-    if max_hp > 0: ratio = max(0, hp / max_hp)
-    else: ratio = 0
-    pygame.draw.rect(surface, RED, (x - bar_w//2, y - size/2 - 15, bar_w, bar_h))
-    pygame.draw.rect(surface, GREEN, (x - bar_w//2, y - size/2 - 15, bar_w * ratio, bar_h))
-
-class Tank:
-    def __init__(self, p_id, name, start_pos):
-        self.id = p_id
+class Player:
+    def __init__(self, pid, name):
+        self.pid = pid
         self.name = name
-        self.x, self.y = start_pos
-        self.body_angle = 90
-        self.turret_angle = 90
-        self.speed = 3
-        
-        self.lv = 1.0
-        self.max_hp = 10
-        self.hp = 10
-        self.point = 0
-        
-        self.color = (random.randint(100, 200), random.randint(100, 200), random.randint(100, 200))
-        self.is_dead = False
-        self.tracks = []
-        self.track_timer = 0
-        self.net_actions = {} 
+        # [수정] 초기 위치를 화면 밖으로 설정하여 아직 스폰되지 않음을 표시
+        self.x, self.y = -1000, -1000 
+        self.ba = 0
+        self.ta = 0
+        self.color = (random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
         self.respawn_req = False
-
-    def reset(self, start_pos):
-        self.x, self.y = start_pos
         self.is_dead = False
+        self.bullets_q = []
+        self.speed = 4
         self.lv = 1.0
-        self.point = 0
-        self.max_hp = 10
-        self.hp = 10
-        self.respawn_req = True
+        self.has_spawned = False # 스폰 여부 플래그
 
-    def get_radius(self):
-        scale = 1 + (int(self.lv) * 0.1)
-        return (40 * min(scale, 3.0)) / 2
-
-    def fire(self):
-        if self.is_dead: return
-        lv_int = int(self.lv)
-        lifetime = 15 + (lv_int * 5)
-        radius = 5 + (lv_int * 1.0)
+    def move(self, keys, obstacles, other_players):
+        # [수정] 스폰되지 않았거나 죽었으면 이동 불가
+        if self.is_dead or not self.has_spawned: return
         
-        bullet_id = (self.id, time.time(), random.random())
-        bullet_data = {'id': bullet_id, 'p_id': self.id, 'x': self.x, 'y': self.y, 'angle': self.turret_angle, 'life': lifetime, 'radius': radius, 'color': self.color}
-        
-        if 'new_bullets' not in self.net_actions:
-            self.net_actions['new_bullets'] = []
-        self.net_actions['new_bullets'].append(bullet_data)
-
-    def move(self, keys, obstacles, other_players, items):
-        if self.is_dead: return 
-
-        dx = 0; dy = 0
-        if keys[pygame.K_a]: self.body_angle += 3
-        if keys[pygame.K_d]: self.body_angle -= 3
-        if keys[pygame.K_j]: self.turret_angle += 3
-        if keys[pygame.K_k]: self.turret_angle -= 3
-
-        rad = math.radians(self.body_angle)
+        dx, dy = 0, 0
+        rad = math.radians(self.ba)
         if keys[pygame.K_w]: dx += math.cos(rad) * self.speed; dy -= math.sin(rad) * self.speed
         if keys[pygame.K_s]: dx -= math.cos(rad) * self.speed; dy += math.sin(rad) * self.speed
-            
-        self.x += dx; self.y += dy
-        my_r = self.get_radius()
+        if keys[pygame.K_a]: self.ba += 4
+        if keys[pygame.K_d]: self.ba -= 4
+        if keys[pygame.K_j]: self.ta += 4
+        if keys[pygame.K_k]: self.ta -= 4
+        
+        # 이동 적용
+        self.x += dx
+        self.y += dy
 
-        for obs in obstacles:
-            ox, oy = obs['x'], obs['y']
-            dist = math.hypot(self.x - ox, self.y - oy)
-            min_dist = my_r + obs['r']
-            if dist < min_dist:
-                if dist == 0: dist = 0.01
-                overlap = min_dist - dist
-                self.x += ((self.x - ox) / dist) * overlap
-                self.y += ((self.y - oy) / dist) * overlap
-
-        for pid, p in other_players.items():
-            if pid == self.id or p['dead']: continue
-            px, py = p['x'], p['y']
-            other_r = (40 * min(1 + int(p['lv'])*0.1, 3.0))/2
-            dist = math.hypot(self.x - px, self.y - py)
-            min_dist = my_r + other_r
-            if dist < min_dist:
-                if dist == 0: dist = 0.01
-                overlap = min_dist - dist
-                self.x += ((self.x - px) / dist) * overlap * 0.5
-                self.y += ((self.y - py) / dist) * overlap * 0.5
-
-        # 아이템 획득
-        for item in items:
-            ix, iy = item['x'], item['y']
-            dist = math.hypot(self.x - ix, self.y - iy)
-            if dist < my_r + item['r']:
-                self.net_actions['eat_item'] = item['id']
-
+        # 맵 경계 제한
         self.x = max(0, min(WIDTH, self.x))
         self.y = max(0, min(HEIGHT, self.y))
 
-        if (dx != 0 or dy != 0) and self.track_timer > 15:
-            self.tracks.append([self.x, self.y, self.body_angle, 100])
-            self.track_timer = 0
-        else:
-            self.track_timer += 1
+        # --- 충돌 처리 (밀어내기) ---
+        scale = 1 + (self.lv * 0.1)
+        my_radius = (40 * min(scale, 3.0)) / 2
 
-    def update_bullets(self, obstacles, other_players, server_bullets):
-        pass
-
-def get_random_spawn(obstacles):
-    while True:
-        x, y = random.randint(50, WIDTH-50), random.randint(50, HEIGHT-50)
-        safe = True
+        # 1. 장애물과 충돌
         for obs in obstacles:
-            if math.hypot(x-obs['x'], y-obs['y']) < 50 + obs['r']: safe = False; break
-        if safe: return (x, y)
+            ox, oy, or_ = obs['x'], obs['y'], obs['r']
+            dist = math.hypot(self.x - ox, self.y - oy)
+            min_dist = my_radius + or_
+            
+            if dist < min_dist:
+                if dist == 0: dist = 0.1
+                overlap = min_dist - dist
+                push_ratio = overlap / dist
+                self.x += (self.x - ox) * push_ratio
+                self.y += (self.y - oy) * push_ratio
 
-def start_screen():
-    pygame.key.start_text_input()
-    input_box = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 - 25, 200, 50)
-    user_text = ''; edit_text = ''; done = False
-    
-    while not done:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT: return None
-            if event.type == pygame.TEXTINPUT: user_text += event.text; edit_text = ''
-            elif event.type == pygame.TEXTEDITING: edit_text = event.text
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    if not user_text and not edit_text: user_text = "Player"
-                    else: user_text += edit_text
-                    done = True
-                elif event.key == pygame.K_BACKSPACE:
-                    if edit_text: edit_text = edit_text[:-1]
-                    elif user_text: user_text = user_text[:-1]
-        screen.fill((30, 30, 30))
-        title = FONT_MAIN.render("TANK BATTLE", True, WHITE)
-        guide = FONT_MAIN.render("이름 입력 후 Enter", True, (200, 200, 200))
-        screen.blit(title, (WIDTH//2 - title.get_width()//2, 150))
-        screen.blit(guide, (WIDTH//2 - guide.get_width()//2, 230))
-        txt = FONT_MAIN.render(user_text + edit_text, True, BLUE)
-        input_box.w = max(200, txt.get_width()+20)
-        input_box.x = WIDTH//2 - input_box.w//2
-        pygame.draw.rect(screen, BLUE, input_box, 2)
-        screen.blit(txt, (input_box.x+10, input_box.y+10))
-        pygame.display.flip()
-        clock.tick(60)
-    pygame.key.stop_text_input()
-    return user_text
+        # 2. 다른 플레이어와 충돌
+        for pid, p in other_players.items():
+            if pid == self.pid or p['dead']: continue
+            
+            px, py = p['x'], p['y']
+            p_scale = 1 + (p['lv'] * 0.1)
+            p_radius = (40 * min(p_scale, 3.0)) / 2
+            
+            dist = math.hypot(self.x - px, self.y - py)
+            min_dist = my_radius + p_radius
+            
+            if dist < min_dist:
+                if dist == 0: dist = 0.1
+                overlap = min_dist - dist
+                push_ratio = overlap / dist
+                self.x += (self.x - px) * push_ratio * 0.5
+                self.y += (self.y - py) * push_ratio * 0.5
+        
+        self.x = max(0, min(WIDTH, self.x))
+        self.y = max(0, min(HEIGHT, self.y))
 
-def draw_leaderboard(surface, players, my_id):
-    rank_list = sorted(players.items(), key=lambda x: x[1]['point'], reverse=True)
-    count = len(rank_list)
-    font_size = max(14, 24 - (count // 2)) 
-    try: DYN_FONT = pygame.font.SysFont("malgungothic", font_size, bold=True)
-    except: DYN_FONT = pygame.font.SysFont("arial", font_size, bold=True)
-
-    bg_h = 30 + count * (font_size + 4)
-    bg = pygame.Surface((200, bg_h), pygame.SRCALPHA)
-    bg.fill((0, 0, 0, 100))
-    surface.blit(bg, (10, 10))
-    surface.blit(FONT_S.render("- Ranking -", True, GOLD), (20, 15))
-    
-    start_y = 35
-    for i, (pid, p) in enumerate(rank_list):
-        color = GOLD if pid == my_id else WHITE
-        if p['dead']: color = GRAY
-        status = "(DEAD)" if p['dead'] else f"(Lv.{int(p['lv'])})"
-        txt_surf = DYN_FONT.render(f"{i+1}. {p['name']} {status}", True, color)
-        surface.blit(txt_surf, (20, start_y))
-        start_y += font_size + 4
+    def shoot(self):
+        if not self.is_dead and self.has_spawned:
+            self.bullets_q.append({'x': self.x, 'y': self.y, 'angle': self.ta, 'color': self.color})
 
 def main():
-    player_name = start_screen()
-    if player_name is None: return
+    nickname = input_nickname()
+    if not nickname: return
 
     n = Network()
-    if n.p_id is None: print("Connection Failed"); return
+    if not n.connect():
+        print("서버 연결 실패")
+        return
 
-    init = n.send({'me': {'x':0,'y':0,'ba':0,'ta':0,'c':(0,0,0),'lv':1.0,'point':0,'max_hp':10,'name':'','is_dead':False}})
-    if not init: return
+    me = Player(n.p_id, nickname)
     
-    my_tank = Tank(n.p_id, player_name, get_random_spawn(init['obstacles']))
-    explosions = []
+    last_obstacles = []
+    last_players = {}
 
     run = True
     while run:
+        clock.tick(60)
+        
         for event in pygame.event.get():
             if event.type == pygame.QUIT: run = False
             if event.type == pygame.KEYDOWN:
-                if not my_tank.is_dead:
-                    if event.key == pygame.K_SPACE or event.key == pygame.K_l:
-                        my_tank.fire()
-                else:
-                    if event.key == pygame.K_r:
-                        my_tank.reset(get_random_spawn(init['obstacles']))
-
-        data = {
-            'me': {
-                'x': my_tank.x, 'y': my_tank.y, 
-                'ba': my_tank.body_angle, 'ta': my_tank.turret_angle,
-                'c': my_tank.color, 'lv': my_tank.lv, 'point': my_tank.point,
-                'max_hp': my_tank.max_hp, 'name': my_tank.name,
-                'is_dead': my_tank.is_dead,
-                'respawn_req': my_tank.respawn_req 
-            }
-        }
-        data.update(my_tank.net_actions)
-        my_tank.respawn_req = False
-
-        state = n.send(data)
-        if not state: break
-        
-        my_tank.net_actions.clear() # 데이터를 보낸 후 초기화
-
-        s_players = state['players']
-        obstacles = state['obstacles']
-        items = state.get('items', [])
-        s_exps = state['explosions']
-        kill_logs = state['kill_logs']
-        init['obstacles'] = obstacles
-        s_bullets = state.get('bullets', [])
-
-        if my_tank.id in s_players:
-            server_me = s_players[my_tank.id]
-            my_tank.hp = server_me['hp']
-            if server_me['lv'] > my_tank.lv:
-                my_tank.lv = server_me['lv']
-                my_tank.max_hp = 10 + (int(my_tank.lv) * 5)
-            if server_me['dead']:
-                my_tank.is_dead = True
-                my_tank.hp = 0
+                if event.key == pygame.K_SPACE: me.shoot()
+                if event.key == pygame.K_r and me.is_dead: 
+                    me.respawn_req = True
 
         keys = pygame.key.get_pressed()
-        my_tank.move(keys, obstacles, s_players, items)
-        
-        # 클라이언트 측 폭발 애니메이션 관리 (단순화)
-        new_explosions = []
-        for e in s_exps:
-            # 폭발 효과는 매번 새로 생성하여 애니메이션
-            color = (255,100,0)
-            if e['type'] == 'hit': color = (200,200,200)
-            elif e['type'] == 'heal': color = (0,255,0)
-            new_explosions.append({'id': e.get('id'), 'x':e['x'], 'y':e['y'], 'r':1, 'max_r':e['r'], 'a':255, 'c':color})
-        explosions = new_explosions
+        me.move(keys, last_obstacles, last_players)
 
-        # --- Draw ---
-        screen.fill(WHITE)
-        
-        for obs in obstacles:
+        send_data = {
+            'me': {
+                'x': int(me.x), 'y': int(me.y), 'ba': int(me.ba), 'ta': int(me.ta),
+                'name': me.name, 'c': me.color, 'respawn_req': me.respawn_req
+            },
+            'new_bullets': me.bullets_q[:]
+        }
+        me.bullets_q.clear()
+        me.respawn_req = False
+
+        state = n.send(send_data)
+        if not state: break
+
+        last_obstacles = state['obstacles']
+        last_players = state['players']
+
+        if n.p_id in state['players']:
+            my_state = state['players'][n.p_id]
+            
+            # [수정] 1. 최초 접속 시 안전한 위치 스폰
+            if not me.has_spawned:
+                me.x, me.y = get_safe_spawn(state['obstacles'], state['players'], n.p_id)
+                me.has_spawned = True
+
+            # [수정] 2. 부활 시 안전한 위치로 재조정 (서버 랜덤 위치 덮어쓰기)
+            # 내가 죽어있었는데 서버 데이터는 살아있다면(방금 부활함)
+            if me.is_dead and not my_state['dead']:
+                me.x, me.y = get_safe_spawn(state['obstacles'], state['players'], n.p_id)
+            
+            me.is_dead = my_state['dead']
+            me.lv = my_state['lv']
+
+        screen.fill((240, 240, 245))
+
+        # 1. 장애물
+        for obs in state['obstacles']:
             ratio = obs['hp'] / obs['max_hp']
-            draw_r = obs['r'] * (0.5 + 0.5 * ratio)
-            col = OBSTACLE_COLOR if ratio > 0.4 else (100, 100, 100)
-            pygame.draw.circle(screen, col, (obs['x'], obs['y']), int(draw_r))
-            pygame.draw.circle(screen, (50,50,50), (obs['x'], obs['y']), int(draw_r), 2)
-            pygame.draw.rect(screen, RED, (obs['x']-15, obs['y']+draw_r+5, 30, 4))
-            pygame.draw.rect(screen, GREEN, (obs['x']-15, obs['y']+draw_r+5, 30*ratio, 4))
-        
-        for pid, p in s_players.items():
-            if pid == n.p_id: continue
-            # 디버그: 다른 플레이어의 총구 각도 출력
-            # print(f"Player {pid} Turret Angle: {p['ta']}")
-            draw_tank_model(screen, p['x'], p['y'], p['ba'], p['ta'], p['c'], p['lv'], p['name'], p['hp'], p['max_hp'], p['dead'])
-        
-        if my_tank.is_dead:
-            draw_tombstone(screen, my_tank.x, my_tank.y, my_tank.name)
-        else:
-            for t in my_tank.tracks[:]:
-                t[3] -= 1; 
-                if t[3]<=0: my_tank.tracks.remove(t); continue
-                a = int(255*(t[3]/100))
-                s = pygame.Surface((10,30), pygame.SRCALPHA)
-                pygame.draw.rect(s,(0,0,0,a*0.3),(0,0,3,6)); pygame.draw.rect(s,(0,0,0,a*0.3),(0,24,3,6))
-                r = pygame.transform.rotate(s, t[2]).get_rect(center=(t[0],t[1]))
-                screen.blit(pygame.transform.rotate(s, t[2]), r.topleft)
+            shade = 150 - (obs['r'] - 20) * 2
+            col = (shade, shade, shade)
             
-            draw_tank_model(screen, my_tank.x, my_tank.y, my_tank.body_angle, my_tank.turret_angle, 
-                           my_tank.color, my_tank.lv, my_tank.name, my_tank.hp, my_tank.max_hp, False)
+            pygame.draw.circle(screen, col, (obs['x'], obs['y']), obs['r'])
+            pygame.draw.circle(screen, BLACK, (obs['x'], obs['y']), obs['r'], 2)
             
-        # 서버가 보내준 모든 총알 그리기
-        for b in s_bullets:
-            pygame.draw.circle(screen, b['color'], (int(b['x']), int(b['y'])), int(b['radius']))
+            if ratio < 1.0:
+                pygame.draw.rect(screen, RED, (obs['x']-15, obs['y']+obs['r']+5, 30, 4))
+                pygame.draw.rect(screen, GREEN, (obs['x']-15, obs['y']+obs['r']+5, 30*ratio, 4))
 
-        for e in explosions[:]:
-            e['r'] += 2; e['a'] -= 5
-            if e['a'] <= 0: 
-                explosions.remove(e)
-                continue
-            s = pygame.Surface((e['r']*2,e['r']*2), pygame.SRCALPHA)
-            pygame.draw.circle(s, (*e['c'], e['a']), (e['r'],e['r']), int(e['r']))
-            screen.blit(s, (e['x']-e['r'], e['y']-e['r']))
+        # 2. 플레이어
+        for pid, p in state['players'].items():
+            draw_tank(screen, p['x'], p['y'], p['ba'], p['ta'], p['c'], 
+                      p['lv'], p['name'], p['hp'], p['max_hp'], p['dead'])
 
-        draw_leaderboard(screen, s_players, n.p_id)
+        # 3. 총알
+        for b in state['bullets']:
+            pygame.draw.circle(screen, b.get('color', BLACK), (int(b['x']), int(b['y'])), int(b.get('radius', 5)))
 
-        for i, log in enumerate(kill_logs):
+        # 4. 이펙트
+        for e in state['explosions']:
+            if e['type'] == 'hit':
+                pygame.draw.circle(screen, (255, 100, 0), (int(e['x']), int(e['y'])), e['r'], 2)
+            else:
+                s = pygame.Surface((e['r']*2, e['r']*2), pygame.SRCALPHA)
+                alpha = max(0, 255 - int((pygame.time.get_ticks()/1000 - e['time']) * 500))
+                pygame.draw.circle(s, (255, 50, 0, 150), (e['r'], e['r']), e['r'])
+                screen.blit(s, (e['x']-e['r'], e['y']-e['r']))
+
+        # 5. UI 오버레이
+        draw_leaderboard(screen, state['players'])
+        
+        log_y = 10
+        for log in state['kill_logs']:
             txt = FONT_MAIN.render(log['msg'], True, RED)
-            screen.blit(txt, (WIDTH//2 - txt.get_width()//2, 50 + i*30))
+            screen.blit(txt, (WIDTH/2 - txt.get_width()/2, log_y))
+            log_y += 30
 
-        if my_tank.is_dead:
+        if me.is_dead:
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 180))
-            screen.blit(overlay, (0,0))
+            screen.blit(overlay, (0, 0))
+            
             msg1 = FONT_BIG.render("GAME OVER", True, RED)
-            msg2 = FONT_MAIN.render("R키를 눌러 다시 시작", True, WHITE)
-            screen.blit(msg1, (WIDTH//2 - msg1.get_width()//2, HEIGHT//2 - 50))
+            msg2 = FONT_MAIN.render("Press 'R' to Respawn", True, WHITE)
+            screen.blit(msg1, (WIDTH//2 - msg1.get_width()//2, HEIGHT//2 - 40))
             screen.blit(msg2, (WIDTH//2 - msg2.get_width()//2, HEIGHT//2 + 20))
 
         pygame.display.flip()
-        clock.tick(60)
+
     pygame.quit()
 
 if __name__ == "__main__":
