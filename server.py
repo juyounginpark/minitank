@@ -16,6 +16,7 @@ explosion_events = []
 kill_logs = []
 obs_counter = 0
 item_counter = 0
+bullet_events = []
 
 def spawn_obstacle():
     global obs_counter
@@ -138,6 +139,11 @@ def handle_client(conn, p_id):
                         kill_logs.append({'msg': msg, 'time': current_time + 3})
                         explosion_events.append({'x': players[target_pid]['x'], 'y': players[target_pid]['y'], 'r': 40, 'type': 'player'})
 
+            if 'new_bullets' in recv_data:
+                for b in recv_data['new_bullets']:
+                    b['p_id'] = p_id
+                bullet_events.extend(recv_data['new_bullets'])
+
             # 오래된 로그 삭제
             kill_logs = [log for log in kill_logs if log['time'] > current_time]
             
@@ -145,10 +151,12 @@ def handle_client(conn, p_id):
                 'players': players,
                 'obstacles': obstacles,
                 'explosions': explosion_events,
-                'kill_logs': kill_logs
+                'kill_logs': kill_logs,
+                'bullets': bullet_events
             }
             conn.send(pickle.dumps(reply))
             if explosion_events: explosion_events.clear()
+            if bullet_events: bullet_events.clear()
 
         except Exception as e:
             break

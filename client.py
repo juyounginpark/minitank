@@ -3,6 +3,7 @@ import math
 import random
 import socket
 import pickle
+import time
 
 WIDTH, HEIGHT = 800, 600
 HOST = '3.36.32.202'
@@ -146,7 +147,15 @@ class Tank:
         lv_int = int(self.lv)
         lifetime = 15 + (lv_int * 5)
         radius = 5 + (lv_int * 1.0)
-        self.bullets.append({'x': self.x, 'y': self.y, 'angle': self.turret_angle, 'life': lifetime, 'radius': radius, 'color': self.color})
+        
+        bullet_id = (self.id, time.time(), random.random())
+        bullet_data = {'id': bullet_id, 'p_id': self.id, 'x': self.x, 'y': self.y, 'angle': self.turret_angle, 'life': lifetime, 'radius': radius, 'color': self.color}
+        self.bullets.append(bullet_data)
+        
+        # 서버 전송을 위해 net_actions에 추가
+        if 'new_bullets' not in self.net_actions:
+            self.net_actions['new_bullets'] = []
+        self.net_actions['new_bullets'].append(bullet_data)
 
     def move(self, keys, obstacles, other_players, items):
         if self.is_dead: return 
@@ -314,6 +323,8 @@ def main():
     
     my_tank = Tank(n.p_id, player_name, get_random_spawn(init['obstacles']))
     explosions = []
+    remote_bullets = []
+    received_bullet_ids = set()
 
     run = True
     while run:
@@ -350,6 +361,14 @@ def main():
         kill_logs = state['kill_logs']
         init['obstacles'] = obstacles
 
+        s_bullets = state.get('bullets', [])
+        for b in s_bullets:
+            if b.get('p_id') != my_tank.id:
+                bullet_id = b.get('id')
+                if bullet_id and bullet_id not in received_bullet_ids:
+                    remote_bullets.append(b)
+                    received_bullet_ids.add(bullet_id)
+
         if my_tank.id in s_players:
             server_me = s_players[my_tank.id]
             my_tank.hp = server_me['hp']
@@ -363,6 +382,16 @@ def main():
         keys = pygame.key.get_pressed()
         my_tank.move(keys, obstacles, s_players, items)
         my_tank.update_bullets(obstacles, s_players)
+
+        for b in remote_bullets[:]:
+            rad = math.radians(b['angle'])
+            b['x'] += math.cos(rad) * 10
+            b['y'] -= math.sin(rad) * 10
+            b['life'] -= 1
+            if b['life'] <= 0:
+                remote_bullets.remove(b)
+                if b.get('id') in received_bullet_ids:
+                    received_bullet_ids.remove(b.get('id'))
 
         for e in s_exps:
             color = (255,100,0)
@@ -400,7 +429,11 @@ def main():
             
             draw_tank_model(screen, my_tank.x, my_tank.y, my_tank.body_angle, my_tank.turret_angle, 
                            my_tank.color, my_tank.lv, my_tank.name, my_tank.hp, my_tank.max_hp, False)
+            
             for b in my_tank.bullets:
+                pygame.draw.circle(screen, b['color'], (int(b['x']), int(b['y'])), int(b['radius']))
+            
+            for b in remote_bullets:
                 pygame.draw.circle(screen, b['color'], (int(b['x']), int(b['y'])), int(b['radius']))
 
         for e in explosions[:]:
